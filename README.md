@@ -92,42 +92,48 @@ For a standard cron installation:
 
 Before using this approach in production, verify the provider's terms, automation rules, and rate-limit behavior. Some consumer services may prohibit scripted interaction or may change their quota implementation without notice.
 
-## Custom Cron Example: Uptime Check + Push Notification
+## Copy-Paste Uptime Check for Codex Scheduled Tasks / Claude Routines
+
+This is a ready-to-paste prompt for **Codex Scheduled Tasks** or **Claude Routines**. Replace `https://example.com/` and `example.com` with the domain you want to monitor.
+
+```text
+You are the uptime check for https://example.com/ — run it and report.
+
+1. Run exactly:
+   curl -sS -L -o /dev/null --max-time 20 \
+     -w "status=%{http_code} time=%{time_total}s final_url=%{url_effective}\\n" \
+     https://example.com/
+   If it fails or returns non-200, wait 10 seconds and run it once more.
+
+2. Healthy = HTTP 200 in under 10 seconds.
+
+3. If healthy: do NOT send a notification. Finish quietly.
+
+4. If unhealthy (non-200, curl error, timeout, or both attempts fail):
+   send a PushNotification. First sentence: "example.com is DOWN: <status or error>".
+   Then include the exact curl output and the UTC time.
+```
+
+### Codex Scheduled Tasks
+
+Paste the prompt above directly into a scheduled Codex task. Set the schedule to whatever monitoring interval you need.
+
+### Claude Routines
+
+Paste the same prompt directly into a Claude Routine and configure the desired recurrence.
+
+> **Important:** The prompt is intentionally provider-neutral. `PushNotification` means the notification mechanism available in your environment. The monitored URL and hostname appear twice in the prompt; replace both before saving the task.
+
+## Custom Cron Example
 
 The same scheduling pattern can be used for a lightweight uptime check or other recurring HTTP task.
 
-The example below intentionally uses a **generic target** rather than tying the repository to any specific website. Replace `https://example.com/` with the service you actually want to monitor.
-
-### Check command
-
-Run exactly:
-
-```bash
-curl -sS -L -o /dev/null --max-time 20 \
-  -w "status=%{http_code} time=%{time_total}s final_url=%{url_effective}\\n" \
-  https://example.com/
-```
-
-The logic is:
-
-1. Run the `curl` command.
-2. Define **healthy** as HTTP `200` completed in under `10` seconds.
-3. If it fails or returns a non-200 response, wait `10` seconds and run it **once more**.
-4. If either result is healthy, finish quietly and do not send a notification.
-5. If both attempts are unhealthy, send a `PushNotification` whose first sentence is:
-
-   > `example.com is DOWN: <status or error>`
-
-   Then include the **exact curl output** and the **UTC timestamp**.
-
-A scheduler entry can call a script containing that logic:
+A cron entry can call a script containing the check logic:
 
 ```cron
 # Example: run the uptime check every 6 hours at :15
 15 */6 * * * /usr/local/bin/uptime-check
 ```
-
-> **Note:** `PushNotification` is intentionally provider-neutral. Wire the failure branch to the notification service you use, such as a local notification bridge, webhook, or push provider.
 
 ## Why Not Hourly?
 
