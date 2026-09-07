@@ -1,100 +1,28 @@
 # LimitMeNot: Epoch Shifting
 
-> A timing strategy for rolling 5-hour quota windows on consumer web sessions.
+> A simple timing strategy for services with rolling 5-hour session quotas.
 
 ![LimitMeNot — Epoch Shifting](./assets/limitmenot-epoch-shifting.jpeg.jpeg)
 
-## Overview
+## The idea
 
-**Epoch shifting** is a timing strategy designed to optimize rolling 5-hour quota windows on consumer web sessions. By strategically pre-warming the session with a zero-cost automated ping (for example, using a lightweight model like Haiku), you shift the start time — the **epoch** — of the quota window.
+If a service starts a **5-hour rolling quota window** on the first interaction, you can pre-warm the session on a fixed schedule so the window starts at a predictable time.
 
-The goal is to create a predictable mid-session reset during an unpredictable work schedule, increasing the amount of usable quota available during a focused development sprint.
-
-## The Problem: The Rolling Window Trap
-
-If an application enforces a 5-hour quota that begins on your **first interaction**, an erratic work schedule works against you.
-
-For example, if you sit down at **2:00 PM** and trigger the window manually, you are bound to a rigid 5-hour countdown. If you exhaust your quota by **2:45 PM**, you may face several hours before the next reset.
-
-Continuous hourly background pings such as:
-
-```cron
-0 * * * *
-```
-
-are not aligned with a 5-hour quota window. Because 24 hours is not divisible by 5, the relationship between the schedule and quota epochs drifts across the day.
-
-## The Solution: Staggered 6-Hour Cron
-
-A simple static schedule is:
+Use:
 
 ```cron
 15 */6 * * *
 ```
 
-This runs four times per day:
+That runs at **00:15, 06:15, 12:15, and 18:15** every day.
 
-- **00:15**
-- **06:15**
-- **12:15**
-- **18:15**
+The goal is simple: when you start working at an unpredictable time, you may already be inside a known 5-hour window, giving you a predictable reset during the work session.
 
-The 6-hour cadence divides evenly into a 24-hour day, so the schedule remains fixed rather than drifting across midnight.
+> **Important:** This only works if the provider actually ties the quota window to the interaction. Some services use fixed account limits, token budgets, server-side rate limits, or anti-abuse controls instead.
 
-## Architecture & Reasoning
+## Copy-paste prompt: Codex Scheduled Tasks / Claude Routines
 
-| Mechanism | Engineering benefit |
-|---|---|
-| **Staggered execution (`15`)** | Places the trigger away from common `:00` schedules and provides a simple, deterministic offset. It does not guarantee avoidance of provider queueing or race conditions. |
-| **6-hour modulo (`*/6`)** | `6` divides evenly into `24`, keeping the schedule static every day. |
-| **Four daily pre-warms** | Creates recurring 5-hour windows with 1-hour gaps between them. |
-| **Predictable epochs** | A user can estimate when a currently active window will expire without relying on when they happened to start working. |
-
-### Important qualification
-
-This strategy depends on the service actually starting or associating its quota window with the pre-warming interaction. A provider may instead use server-side fixed windows, account-level rate limiting, token budgets, rolling request counters, or anti-abuse controls that do not behave this way.
-
-**Therefore, this is an observed/experimental client-side timing strategy, not a guarantee that any specific provider will reset quota as described.**
-
-## Daily Lifecycle
-
-When the schedule aligns with a 5-hour rolling quota window, the intended daily structure is:
-
-| Period | Status |
-|---|---|
-| **00:15 – 05:15** | Window 1 active |
-| **05:15 – 06:15** | Cooldown / transition |
-| **06:15 – 11:15** | Window 2 active |
-| **11:15 – 12:15** | Cooldown / transition |
-| **12:15 – 17:15** | Window 3 active |
-| **17:15 – 18:15** | Cooldown / transition |
-| **18:15 – 23:15** | Window 4 active |
-| **23:15 – 00:15** | Cooldown / transition |
-
-## Example Scenario
-
-Suppose you start a heavy development sprint at **2:30 PM**.
-
-With the intended schedule, you are already inside the **12:15 PM – 5:15 PM** window. If your quota is tied to that epoch, the next reset occurs at approximately **5:15 PM**, while you are still working.
-
-That creates a fresh 5-hour runway without requiring you to start the sprint at exactly the same time every day.
-
-## Setup
-
-Run the lightweight pre-warming action from a scheduler that you control. The exact command depends on the service and client you are using.
-
-For a standard cron installation:
-
-```cron
-# Pre-warm at 00:15, 06:15, 12:15, and 18:15 every day
-15 */6 * * * /path/to/your/prewarm-command
-```
-
-Before using this approach in production, verify the provider's terms, automation rules, and rate-limit behavior. Some consumer services may prohibit scripted interaction or may change their quota implementation without notice.
-
-## Copy-Paste Uptime Check for Codex Scheduled Tasks / Claude Routines
-
-This is a ready-to-paste prompt for **Codex Scheduled Tasks** or **Claude Routines**. Replace `https://example.com/` and `example.com` with the domain you want to monitor.
+Replace `https://example.com/` and `example.com` with the site you want to monitor.
 
 ```text
 You are the uptime check for https://example.com/ — run it and report.
@@ -114,64 +42,18 @@ You are the uptime check for https://example.com/ — run it and report.
    Then include the exact curl output and the UTC time.
 ```
 
-### Codex Scheduled Tasks
+### Recommended schedule
 
-Paste the prompt above directly into a scheduled Codex task. Set the schedule to whatever monitoring interval you need.
-
-### Claude Routines
-
-Paste the same prompt directly into a Claude Routine and configure the desired recurrence.
-
-> **Important:** The prompt is intentionally provider-neutral. `PushNotification` means the notification mechanism available in your environment. The monitored URL and hostname appear twice in the prompt; replace both before saving the task.
-
-## Custom Cron Example
-
-The same scheduling pattern can be used for a lightweight uptime check or other recurring HTTP task.
-
-A cron entry can call a script containing the check logic:
+For a fixed 6-hour cadence:
 
 ```cron
-# Example: run the uptime check every 6 hours at :15
-15 */6 * * * /usr/local/bin/uptime-check
+15 */6 * * *
 ```
 
-## Why Not Hourly?
+### Why `*/6`?
 
-An hourly schedule:
-
-```cron
-0 * * * *
-```
-
-produces 24 executions per day and does not synchronize with a 5-hour quota boundary. The resulting relationship between the pre-warm schedule and the quota window changes over time.
-
-The 6-hour schedule is attractive because it gives a fixed daily cadence while keeping the trigger frequency relatively low.
-
-## Operational Guidance
-
-This technique is best treated as a **tactical workaround for interactive consumer-session limits**, not as a substitute for capacity planning.
-
-For sustained development workloads, a cleaner architecture is to route heavy, repetitive, or automated workloads through a direct API or another appropriately provisioned service, while reserving rate-limited web sessions for interactive work.
-
-## Limitations & Risks
-
-- The service may not start a quota window on the pre-warm interaction.
-- Quotas may be enforced independently of session epochs.
-- Provider-side anti-abuse systems may detect scripted traffic.
-- Terms of service may restrict automated interaction.
-- Queueing, network latency, retries, and scheduler jitter can move the effective trigger time.
-- A lightweight request may still consume some quota, depending on provider behavior.
-
-## Contributing
-
-Issues and pull requests are welcome. Useful contributions include:
-
-- Reproducing the timing behavior across providers.
-- Measuring actual epoch and reset times.
-- Comparing cron, systemd timers, and managed schedulers.
-- Documenting provider-specific behavior.
-- Building a small simulator for rolling-window scheduling.
+Six hours divides evenly into 24 hours, so the schedule stays fixed every day instead of drifting.
 
 ## License
 
-This project is **free and open source for anyone to use, modify, and distribute** under the [MIT License](./LICENSE).
+Free for anyone to use, modify, and distribute under the **MIT License**. See [LICENSE](./LICENSE).
