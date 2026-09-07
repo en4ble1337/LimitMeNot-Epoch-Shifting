@@ -2,7 +2,7 @@
 
 > A timing strategy for rolling 5-hour quota windows on consumer web sessions.
 
-![LimitMeNot — Epoch Shifting](./assets/limitmenot-epoch-shifting.jpeg)
+![LimitMeNot — Epoch Shifting](./assets/limitmenot-epoch-shifting.jpeg.jpeg)
 
 ## Overview
 
